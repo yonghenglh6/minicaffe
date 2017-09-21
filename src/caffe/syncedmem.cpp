@@ -1,61 +1,61 @@
+#include <sstream>
+#include <iomanip>
+#include "../../include/caffe/syncedmem.hpp"
 #include "caffe/common.hpp"
-#include "caffe/syncedmem.hpp"
+
 #include "caffe/util/math_functions.hpp"
 
 namespace caffe {
-SyncedMemory::SyncedMemory()
-  : cpu_ptr_(NULL), gpu_ptr_(NULL), size_(0), head_(UNINITIALIZED),
-    own_cpu_data_(false), cpu_malloc_use_cuda_(false), own_gpu_data_(false) {
-#ifndef CPU_ONLY
-#ifdef DEBUG
-  CUDA_CHECK(cudaGetDevice(&device_));
-#endif
-#endif
+
+using MemBlock = MemoryPool::MemBlock;
+
+static void CaffeMallocHost(MemBlock& block, size_t size) {
+  block = MemoryPool::Get()->RequestCPU(size);
 }
 
-SyncedMemory::SyncedMemory(size_t size)
-  : cpu_ptr_(NULL), gpu_ptr_(NULL), size_(size), head_(UNINITIALIZED),
-    own_cpu_data_(false), cpu_malloc_use_cuda_(false), own_gpu_data_(false) {
-#ifndef CPU_ONLY
-#ifdef DEBUG
-  CUDA_CHECK(cudaGetDevice(&device_));
-#endif
-#endif
+static void CaffeFreeHost(MemBlock block) {
+  MemoryPool::Get()->ReturnCPU(block);
 }
+
+static void CaffeMallocDevice(MemBlock& block, size_t size, int device) {
+  block = MemoryPool::Get()->RequestGPU(size, device);
+}
+
+static void CaffeFreeDevice(MemBlock block) {
+  MemoryPool::Get()->ReturnGPU(block);
+}
+
 
 SyncedMemory::~SyncedMemory() {
-  check_device();
-  if (cpu_ptr_ && own_cpu_data_) {
-    CaffeFreeHost(cpu_ptr_, cpu_malloc_use_cuda_);
+  if (cpu_block_.ptr) {
+    CaffeFreeHost(cpu_block_);
+    cpu_block_.ptr = nullptr;
   }
-
 #ifndef CPU_ONLY
-  if (gpu_ptr_ && own_gpu_data_) {
-    CUDA_CHECK(cudaFree(gpu_ptr_));
+  if (gpu_block_.ptr) {
+    CaffeFreeDevice(gpu_block_);
+    gpu_block_.ptr = nullptr;
   }
-#endif  // CPU_ONLY
+#endif  // USE_CUDA
 }
 
 inline void SyncedMemory::to_cpu() {
-  check_device();
   switch (head_) {
   case UNINITIALIZED:
-    CaffeMallocHost(&cpu_ptr_, size_, &cpu_malloc_use_cuda_);
-    caffe_memset(size_, 0, cpu_ptr_);
+    CaffeMallocHost(cpu_block_, size_);
+    caffe_memset(size_, 0, cpu_block_.ptr);
     head_ = HEAD_AT_CPU;
-    own_cpu_data_ = true;
     break;
   case HEAD_AT_GPU:
 #ifndef CPU_ONLY
-    if (cpu_ptr_ == NULL) {
-      CaffeMallocHost(&cpu_ptr_, size_, &cpu_malloc_use_cuda_);
-      own_cpu_data_ = true;
+    if (cpu_block_.ptr == nullptr) {
+      CaffeMallocHost(cpu_block_, size_);
     }
-    caffe_gpu_memcpy(size_, gpu_ptr_, cpu_ptr_);
+    caffe_gpu_memcpy(size_, gpu_block_.ptr, cpu_block_.ptr);
     head_ = SYNCED;
 #else
     NO_GPU;
-#endif
+#endif  // USE_CUDA
     break;
   case HEAD_AT_CPU:
   case SYNCED:
@@ -64,21 +64,21 @@ inline void SyncedMemory::to_cpu() {
 }
 
 inline void SyncedMemory::to_gpu() {
-  check_device();
 #ifndef CPU_ONLY
+  int device = -1;
   switch (head_) {
   case UNINITIALIZED:
-    CUDA_CHECK(cudaMalloc(&gpu_ptr_, size_));
-    caffe_gpu_memset(size_, 0, gpu_ptr_);
+    CUDA_CHECK(cudaGetDevice(&device));
+    CaffeMallocDevice(gpu_block_, size_, device);
+    caffe_gpu_memset(size_, 0, gpu_block_.ptr);
     head_ = HEAD_AT_GPU;
-    own_gpu_data_ = true;
     break;
   case HEAD_AT_CPU:
-    if (gpu_ptr_ == NULL) {
-      CUDA_CHECK(cudaMalloc(&gpu_ptr_, size_));
-      own_gpu_data_ = true;
+    if (gpu_block_.ptr == nullptr) {
+      CUDA_CHECK(cudaGetDevice(&device));
+      CaffeMallocDevice(gpu_block_, size_, device);
     }
-    caffe_gpu_memcpy(size_, cpu_ptr_, gpu_ptr_);
+    caffe_gpu_memcpy(size_, cpu_block_.ptr, gpu_block_.ptr);
     head_ = SYNCED;
     break;
   case HEAD_AT_GPU:
@@ -87,100 +87,252 @@ inline void SyncedMemory::to_gpu() {
   }
 #else
   NO_GPU;
-#endif
+#endif  // USE_CUDA
 }
 
 const void* SyncedMemory::cpu_data() {
-  check_device();
   to_cpu();
-  return (const void*)cpu_ptr_;
-}
-
-void SyncedMemory::set_cpu_data(void* data) {
-  check_device();
-  CHECK(data);
-  if (own_cpu_data_) {
-    CaffeFreeHost(cpu_ptr_, cpu_malloc_use_cuda_);
-  }
-  cpu_ptr_ = data;
-  head_ = HEAD_AT_CPU;
-  own_cpu_data_ = false;
+  return (const void*)cpu_block_.ptr;
 }
 
 const void* SyncedMemory::gpu_data() {
-  check_device();
 #ifndef CPU_ONLY
   to_gpu();
-  return (const void*)gpu_ptr_;
+  return (const void*)gpu_block_.ptr;
 #else
   NO_GPU;
-  return NULL;
-#endif
-}
-
-void SyncedMemory::set_gpu_data(void* data) {
-  check_device();
-#ifndef CPU_ONLY
-  CHECK(data);
-  if (own_gpu_data_) {
-    CUDA_CHECK(cudaFree(gpu_ptr_));
-  }
-  gpu_ptr_ = data;
-  head_ = HEAD_AT_GPU;
-  own_gpu_data_ = false;
-#else
-  NO_GPU;
-#endif
+  return nullptr;
+#endif  // USE_CUDA
 }
 
 void* SyncedMemory::mutable_cpu_data() {
-  check_device();
   to_cpu();
   head_ = HEAD_AT_CPU;
-  return cpu_ptr_;
+  return cpu_block_.ptr;
 }
 
 void* SyncedMemory::mutable_gpu_data() {
-  check_device();
 #ifndef CPU_ONLY
   to_gpu();
   head_ = HEAD_AT_GPU;
-  return gpu_ptr_;
+  return gpu_block_.ptr;
 #else
   NO_GPU;
-  return NULL;
-#endif
+  return nullptr;
+#endif  // USE_CUDA
 }
 
-#ifndef CPU_ONLY
-void SyncedMemory::async_gpu_push(const cudaStream_t& stream) {
-  check_device();
-  CHECK(head_ == HEAD_AT_CPU);
-  if (gpu_ptr_ == NULL) {
-    CUDA_CHECK(cudaMalloc(&gpu_ptr_, size_));
-    own_gpu_data_ = true;
-  }
-  const cudaMemcpyKind put = cudaMemcpyHostToDevice;
-  CUDA_CHECK(cudaMemcpyAsync(gpu_ptr_, cpu_ptr_, size_, put, stream));
-  // Assume caller will synchronize on the stream before use
-  head_ = SYNCED;
-}
-#endif
+//// MemoryPool
 
-void SyncedMemory::check_device() {
-#ifndef CPU_ONLY
-#ifdef DEBUG
-  int device;
-  cudaGetDevice(&device);
-  CHECK(device == device_);
-  if (gpu_ptr_ && own_gpu_data_) {
-    cudaPointerAttributes attributes;
-    CUDA_CHECK(cudaPointerGetAttributes(&attributes, gpu_ptr_));
-    CHECK(attributes.device == device_);
+MemoryPool* MemoryPool::Get() {
+  return ThreadLocalStore<MemoryPool>::Get();
+}
+
+MemoryPool::MemoryPool() {
+  // init small object pool
+  head_ = nullptr;
+  curr_page_.device = -1;
+  curr_page_.size = 0;
+  curr_page_.ptr = nullptr;
+  curr_ptr_ = kPageSize;  // used to trigger allocate
+  obj_pool_.clear();
+  // init status
+  st_.cpu_mem = st_.unused_cpu_mem = 0;
+  st_.gpu_mem = st_.unused_gpu_mem = 0;
+}
+
+MemoryPool::~MemoryPool() {
+  // all memory should be returned to pool
+  Clear();
+  // small object pool
+  for (auto& block : obj_pool_) {
+    free(block.ptr);
   }
-#endif
-#endif
+}
+
+inline std::string MemSize(double size) {
+  std::stringstream os;
+  if (size < 1024.) {
+    os << static_cast<int>(size) << " B";
+  }
+  else {
+    size /= 1024.;
+    os << std::setprecision(3);
+    if (size < 1024.) {
+      os << size << " K";
+    }
+    else {
+      size /= 1024.;
+      os << size << " M";
+    }
+  }
+  return os.str();
+}
+
+inline bool ShouldBorrowMem(int has, int wants) {
+  const int ratio = 2;
+  return has / ratio <= wants;
+}
+
+MemBlock MemoryPool::RequestCPU(int size) {
+  MemBlock block;
+  if (size <= kElementSize) {  // small object <= 128 bytes
+    block.device = -1;
+    block.size = size;
+    if (head_ != nullptr) {
+      block.ptr = static_cast<void*>(head_);
+      head_ = head_->next;
+    }
+    else {
+      if (curr_ptr_ < kPageSize) {
+        block.ptr = static_cast<void*>(static_cast<char*>(curr_page_.ptr) + curr_ptr_);
+        curr_ptr_ += kElementSize;
+      }
+      else {
+        curr_page_.device = -1;
+        curr_page_.size = kPageSize;
+        curr_page_.ptr = malloc(kPageSize);
+        st_.cpu_mem += kPageSize;
+        obj_pool_.push_back(curr_page_);
+        block.ptr = curr_page_.ptr;
+        curr_ptr_ = kElementSize;
+      }
+    }
+  }
+  else {
+    CpuKey key{size};
+    auto it = cpu_pool_.lower_bound(key);
+    if (it == cpu_pool_.end() || !ShouldBorrowMem(it->second.size, size)) {
+      block.device = -1;
+      block.size = size;
+      block.ptr = malloc(size);
+      st_.cpu_mem += size;
+      DLOG(INFO) << "[CPU] Requested " << MemSize(size) << ", Create " << MemSize(block.size);
+    }
+    else {
+      block = it->second;
+      cpu_pool_.erase(it);
+      st_.unused_cpu_mem -= block.size;
+      DLOG(INFO) << "[CPU] Requested " << MemSize(size) << ", Get " << MemSize(block.size);
+    }
+  }
+  return block;
+}
+
+void MemoryPool::ReturnCPU(MemBlock block) {
+  if (block.size <= kElementSize) {
+    LinkedList* p = static_cast<LinkedList*>(block.ptr);
+    p->next = head_;
+    head_ = p;
+  }
+  else {
+    CpuKey key{block.size};
+    cpu_pool_.insert(std::make_pair(key, block));
+    st_.unused_cpu_mem += block.size;
+    DLOG(INFO) << "[CPU] Return " << MemSize(block.size);
+  }
+}
+
+MemBlock MemoryPool::RequestGPU(int size, int device) {
+  MemBlock block;
+#ifndef CPU_ONLY
+  GpuKey key{device, size};
+  auto it = gpu_pool_.lower_bound(key);
+  if (it == gpu_pool_.end() || it->second.device != device ||
+      !ShouldBorrowMem(it->second.size, size)) {
+    int cur_device;
+    CUDA_CHECK(cudaGetDevice(&cur_device));
+    if (cur_device != device) {
+      CUDA_CHECK(cudaSetDevice(device));
+    }
+    block.size = size;
+    block.device = device;
+    CUDA_CHECK(cudaMalloc(&block.ptr, size));
+    st_.gpu_mem += size;
+    if (cur_device != device) {
+      CUDA_CHECK(cudaSetDevice(cur_device));
+    }
+    DLOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Create " << MemSize(block.size);
+    return block;
+  }
+  else {
+    block = it->second;
+    gpu_pool_.erase(it);
+    st_.unused_gpu_mem -= block.size;
+    DLOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Get " << MemSize(block.size);
+    return block;
+  }
+#else
+  NO_GPU;
+#endif  // USE_CUDA
+  return block;
+}
+
+void MemoryPool::ReturnGPU(MemBlock block) {
+#ifndef CPU_ONLY
+  GpuKey key{block.device, block.size};
+  gpu_pool_.insert(std::make_pair(key, block));
+  st_.unused_gpu_mem += block.size;
+  DLOG(INFO) << "[GPU] Return " << MemSize(block.size);
+#else
+  NO_GPU;
+#endif  // USE_CUDA
+}
+
+void MemoryPool::Clear() {
+  for (auto it = cpu_pool_.begin(); it != cpu_pool_.end(); ++it) {
+    free(it->second.ptr);
+    st_.cpu_mem -= it->second.size;
+    st_.unused_cpu_mem -= it->second.size;
+  }
+  cpu_pool_.clear();
+#ifndef CPU_ONLY
+  int cur_device;
+  cudaError_t err = cudaGetDevice(&cur_device);
+  if (err == cudaErrorCudartUnloading) {
+    // we are shutting down the program
+    // ignore unloading error, as memory has already been recycled
+    gpu_pool_.clear();
+    return;
+  }
+  for (auto it = gpu_pool_.begin(); it != gpu_pool_.end(); ++it) {
+    int device = it->second.device;
+    if (cur_device != device) {
+      CUDA_CHECK(cudaSetDevice(device));
+    }
+    CUDA_CHECK(cudaFree(it->second.ptr));
+    if (cur_device != device) {
+      CUDA_CHECK(cudaSetDevice(cur_device));
+    }
+    st_.gpu_mem -= it->second.size;
+    st_.unused_gpu_mem -= it->second.size;
+  }
+  gpu_pool_.clear();
+#endif  // USE_CUDA
+}
+
+MemPoolState MemoryPool::GetState() {
+  int unused_cpu_mem = 0;
+  int unused_gpu_mem = 0;
+  for (auto it = cpu_pool_.begin(); it != cpu_pool_.end(); ++it) {
+    unused_cpu_mem += it->second.size;
+  }
+  CHECK_EQ(unused_cpu_mem, st_.unused_cpu_mem);
+#ifndef CPU_ONLY
+  for (auto it = gpu_pool_.begin(); it != gpu_pool_.end(); ++it) {
+    unused_gpu_mem += it->second.size;
+  }
+  CHECK_EQ(unused_gpu_mem, st_.unused_gpu_mem);
+#endif  // USE_CUDA
+  return st_;
+}
+
+void MemPoolClear() {
+  MemoryPool::Get()->Clear();
+}
+
+MemPoolState MemPoolGetState() {
+  return MemoryPool::Get()->GetState();
 }
 
 }  // namespace caffe
-

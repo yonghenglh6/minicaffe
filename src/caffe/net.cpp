@@ -244,6 +244,14 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     net_output_blobs_.push_back(blobs_[blob_name_to_idx[*it]].get());
     net_output_blob_indices_.push_back(blob_name_to_idx[*it]);
   }
+
+  CHECK_EQ(std::string(layers_[0]->type()), std::string("Input"))
+      << "Network\'s first layer should be Input Layer.";
+  // for most case, not fully convolutional network, hold input data will be convenient
+  for (int blob_id : top_id_vecs_[0]) {
+    blob_life_time_[blob_id] = layers_.size();
+  }
+
   for (size_t blob_id = 0; blob_id < blob_names_.size(); ++blob_id) {
     blob_names_index_[blob_names_[blob_id]] = blob_id;
   }
@@ -253,6 +261,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   ShareWeights();
   debug_info_ = param.debug_info();
   LOG_IF(INFO, Caffe::root_solver()) << "Network initialization done.";
+
+
 }
 
 template <typename Dtype>
@@ -366,8 +376,12 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
     // In-place computation
     LOG_IF(INFO, Caffe::root_solver())
         << layer_param->name() << " -> " << blob_name << " (in-place)";
-    top_vecs_[layer_id].push_back(blobs_[(*blob_name_to_idx)[blob_name]].get());
-    top_id_vecs_[layer_id].push_back((*blob_name_to_idx)[blob_name]);
+
+    int blob_id = (*blob_name_to_idx)[blob_name];
+    top_vecs_[layer_id].push_back(blobs_[blob_id].get());
+    top_id_vecs_[layer_id].push_back(blob_id);
+
+    blob_life_time_[blob_id] = std::max(blob_life_time_[blob_id], layer_id + 1);
   } else if (blob_name_to_idx &&
              blob_name_to_idx->find(blob_name) != blob_name_to_idx->end()) {
     // If we are not doing in-place computation but have duplicated blobs,
@@ -384,6 +398,7 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
     blobs_.push_back(blob_pointer);
     blob_names_.push_back(blob_name);
     blob_need_backward_.push_back(false);
+    blob_life_time_.push_back(layer_id + 1);
     if (blob_name_to_idx) { (*blob_name_to_idx)[blob_name] = blob_id; }
     top_id_vecs_[layer_id].push_back(blob_id);
     top_vecs_[layer_id].push_back(blob_pointer.get());
@@ -407,6 +422,7 @@ int Net<Dtype>::AppendBottom(const NetParameter& param, const int layer_id,
       << layer_names_[layer_id] << " <- " << blob_name;
   bottom_vecs_[layer_id].push_back(blobs_[blob_id].get());
   bottom_id_vecs_[layer_id].push_back(blob_id);
+  blob_life_time_[blob_id] = std::max(blob_life_time_[blob_id], layer_id);
   available_blobs->erase(blob_name);
   bool need_backward = blob_need_backward_[blob_id];
   // Check if the backpropagation on bottom_id should be skipped
@@ -518,6 +534,11 @@ Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
   CHECK_LT(end, layers_.size());
   Dtype loss = 0;
   for (int i = start; i <= end; ++i) {
+
+//	for (int blob_idx : bottom_id_vecs_[i]) {
+//		LOG(INFO) << "Layer ["<<i<<"]:"<<blob_life_time_[blob_idx]<<std::endl;
+//	}
+
     for (int c = 0; c < before_forward_.size(); ++c) {
       before_forward_[c]->run(i);
     }
@@ -527,8 +548,26 @@ Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
     for (int c = 0; c < after_forward_.size(); ++c) {
       after_forward_[c]->run(i);
     }
+    for (int blob_idx : bottom_id_vecs_[i]) {
+      if (blob_life_time_[blob_idx] <= i) {
+        blobs_[blob_idx]->Release();
+      }
+    }
   }
+//  LOG(INFO) << "forward done.";
   return loss;
+}
+
+template <typename Dtype>
+void Net<Dtype>::MarkOutputs(const std::vector<std::string>& outs) {
+  for (auto& name : outs) {
+    auto it = blob_names_index_.find(name);
+    if (it == blob_names_index_.end()) {
+      LOG(FATAL) << "blob (" << name << ") is not availiable in Net";
+    }
+    int blob_id = it->second;
+    blob_life_time_[blob_id] = layers_.size();
+  }
 }
 
 template <typename Dtype>

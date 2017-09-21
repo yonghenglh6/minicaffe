@@ -24,6 +24,7 @@ enum Op {
 template<typename Dtype>
 static void apply_buffers(const vector<Blob<Dtype>*>& blobs,
                           Dtype* buffer, size_t total_size, Op op) {
+  NOT_IMPLEMENTED;
   Dtype* ptr = buffer;
   for (int i = 0; i < blobs.size(); ++i) {
     int size = blobs[i]->count();
@@ -35,6 +36,8 @@ static void apply_buffers(const vector<Blob<Dtype>*>& blobs,
                    ptr);
         break;
       }
+
+	  /*
       case replace_cpu:
         blobs[i]->data()->set_cpu_data(ptr);
         break;
@@ -47,6 +50,7 @@ static void apply_buffers(const vector<Blob<Dtype>*>& blobs,
       case replace_gpu_diff:
         blobs[i]->diff()->set_gpu_data(ptr);
         break;
+        */
     }
     ptr += size;
   }

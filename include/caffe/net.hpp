@@ -273,6 +273,10 @@ class Net {
   /// @brief Helper for displaying debug info in Update.
   void UpdateDebugInfo(const int param_id);
 
+
+
+  void MarkOutputs(const std::vector<std::string>& outs);
+
   /// @brief The network name
   string name_;
   /// @brief The phase: TRAIN or TEST
@@ -303,6 +307,8 @@ class Net {
   vector<int> param_owners_;
   vector<string> param_display_names_;
   vector<pair<int, int> > param_layer_indices_;
+
+  vector<int> blob_life_time_;
   map<string, int> param_names_index_;
   /// blob indices for the input and the output of the net
   vector<int> net_input_blob_indices_;

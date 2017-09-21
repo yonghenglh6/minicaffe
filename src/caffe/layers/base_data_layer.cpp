@@ -89,10 +89,11 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
       Batch<Dtype>* batch = prefetch_free_.pop();
       load_batch(batch);
 #ifndef CPU_ONLY
+      NOT_IMPLEMENTED;
       if (Caffe::mode() == Caffe::GPU) {
-        batch->data_.data().get()->async_gpu_push(stream);
+        //batch->data_.data().get()->async_gpu_push(stream);
         if (this->output_labels_) {
-          batch->label_.data().get()->async_gpu_push(stream);
+        //  batch->label_.data().get()->async_gpu_push(stream);
         }
         CUDA_CHECK(cudaStreamSynchronize(stream));
       }

@@ -9,8 +9,8 @@
 
 #include "caffe/blob.hpp"
 #include "caffe/proto/caffe.pb.h"
-#include "caffe/syncedmem.hpp"
 #include "caffe/util/math_functions.hpp"
+#include "syncedmem.hpp"
 
 namespace caffe {
 

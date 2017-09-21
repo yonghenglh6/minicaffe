@@ -71,6 +71,7 @@ class Layer {
     Reshape(bottom, top);
     SetLossWeights(top);
   }
+  virtual void ClearInternalBuffer() {}
 
   /**
    * @brief Does layer-specific setup: your layer should implement this function
@@ -442,6 +443,7 @@ inline Dtype Layer<Dtype>::Forward(const vector<Blob<Dtype>*>& bottom,
   default:
     LOG(FATAL) << "Unknown caffe mode.";
   }
+  ClearInternalBuffer();
   return loss;
 }
 

@@ -196,7 +196,8 @@ void DataTransformer<Dtype>::Transform(const vector<Datum> & datum_vector,
   Blob<Dtype> uni_blob(1, channels, height, width);
   for (int item_id = 0; item_id < datum_num; ++item_id) {
     int offset = transformed_blob->offset(item_id);
-    uni_blob.set_cpu_data(transformed_blob->mutable_cpu_data() + offset);
+    NOT_IMPLEMENTED;
+    //uni_blob.set_cpu_data(transformed_blob->mutable_cpu_data() + offset);
     Transform(datum_vector[item_id], &uni_blob);
   }
 }
@@ -217,7 +218,8 @@ void DataTransformer<Dtype>::Transform(const vector<cv::Mat> & mat_vector,
   Blob<Dtype> uni_blob(1, channels, height, width);
   for (int item_id = 0; item_id < mat_num; ++item_id) {
     int offset = transformed_blob->offset(item_id);
-    uni_blob.set_cpu_data(transformed_blob->mutable_cpu_data() + offset);
+    NOT_IMPLEMENTED;
+    //uni_blob.set_cpu_data(transformed_blob->mutable_cpu_data() + offset);
     Transform(mat_vector[item_id], &uni_blob);
   }
 }

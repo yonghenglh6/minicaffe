@@ -7,7 +7,7 @@
 
 #include "caffe/common.hpp"
 #include "caffe/proto/caffe.pb.h"
-#include "caffe/syncedmem.hpp"
+#include "syncedmem.hpp"
 
 const int kMaxBlobAxes = 32;
 
@@ -127,6 +127,8 @@ class Blob {
     }
     return axis_index;
   }
+
+  void Release();
 
   /// @brief Deprecated legacy shape accessor num: use shape(0) instead.
   inline int num() const { return LegacyShape(0); }

@@ -2,8 +2,9 @@
 #include <vector>
 
 #include "caffe/blob.hpp"
+
+#include "../../include/caffe/syncedmem.hpp"
 #include "caffe/common.hpp"
-#include "caffe/syncedmem.hpp"
 #include "caffe/util/math_functions.hpp"
 
 namespace caffe {
@@ -88,14 +89,15 @@ const Dtype* Blob<Dtype>::cpu_data() const {
 
 template <typename Dtype>
 void Blob<Dtype>::set_cpu_data(Dtype* data) {
-  CHECK(data);
-  // Make sure CPU and GPU sizes remain equal
-  size_t size = count_ * sizeof(Dtype);
-  if (data_->size() != size) {
-    data_.reset(new SyncedMemory(size));
-    diff_.reset(new SyncedMemory(size));
-  }
-  data_->set_cpu_data(data);
+NOT_IMPLEMENTED;
+//  CHECK(data);
+//  // Make sure CPU and GPU sizes remain equal
+//  size_t size = count_ * sizeof(Dtype);
+//  if (data_->size() != size) {
+//    data_.reset(new SyncedMemory(size));
+//    diff_.reset(new SyncedMemory(size));
+//  }
+//  data_->set_cpu_data(data);
 }
 
 template <typename Dtype>
@@ -106,14 +108,15 @@ const Dtype* Blob<Dtype>::gpu_data() const {
 
 template <typename Dtype>
 void Blob<Dtype>::set_gpu_data(Dtype* data) {
-  CHECK(data);
-  // Make sure CPU and GPU sizes remain equal
-  size_t size = count_ * sizeof(Dtype);
-  if (data_->size() != size) {
-    data_.reset(new SyncedMemory(size));
-    diff_.reset(new SyncedMemory(size));
-  }
-  data_->set_gpu_data(data);
+	NOT_IMPLEMENTED;
+//  CHECK(data);
+//  // Make sure CPU and GPU sizes remain equal
+//  size_t size = count_ * sizeof(Dtype);
+//  if (data_->size() != size) {
+//    data_.reset(new SyncedMemory(size));
+//    diff_.reset(new SyncedMemory(size));
+//  }
+//  data_->set_gpu_data(data);
 }
 
 template <typename Dtype>
@@ -274,6 +277,16 @@ template <> unsigned int Blob<unsigned int>::sumsq_data() const {
 template <> int Blob<int>::sumsq_data() const {
   NOT_IMPLEMENTED;
   return 0;
+}
+
+template <typename Dtype>
+void Blob<Dtype>::Release() {
+  data_ = nullptr;
+  // no need to free shape data, cache it in blob level
+  //shape_data_ = nullptr;
+  shape_.clear();
+  count_ = 0;
+  capacity_ = 0;
 }
 
 template <typename Dtype>

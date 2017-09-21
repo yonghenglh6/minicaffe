@@ -16,7 +16,9 @@
 #include <utility>  // pair
 #include <vector>
 
+
 #include "caffe/util/device_alternate.hpp"
+#include "thread_local.hpp"
 
 // Convert macro to string
 #define STRINGIFY(m) #m
@@ -68,11 +70,14 @@ private:\
 // A simple macro to mark codes that are not implemented, so that when the code
 // is executed we will see a fatal log.
 #define NOT_IMPLEMENTED LOG(FATAL) << "Not Implemented Yet"
+#define NO_GPU LOG(FATAL) << "Cannot use GPU in CPU-only Caffe: check mode."
 
 // See PR #1236
 namespace cv { class Mat; }
 
 namespace caffe {
+
+
 
 // We will use the boost shared_ptr instead of the new C++11 one mainly
 // because cuda does not work (at least now) well with C++11 features.
@@ -186,6 +191,14 @@ class Caffe {
   Caffe();
 
   DISABLE_COPY_AND_ASSIGN(Caffe);
+};
+
+
+struct MemPoolState {
+  int gpu_mem;  // gpu memory, calculate on all device memory used by this thread
+  int cpu_mem;  // cpu memory
+  int unused_gpu_mem;  // not used gpu memory
+  int unused_cpu_mem;  // not used cpu memory
 };
 
 }  // namespace caffe
