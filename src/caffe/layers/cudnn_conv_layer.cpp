@@ -189,6 +189,11 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
   size_t total_max_workspace = max_workspace *
                                (this->group_ * CUDNN_STREAMS_PER_GROUP);
 
+
+//  &(this->workspaceData)=blob.mutable_gpu_data();
+
+
+
   // this is the total amount of storage needed over all groups + streams
   if (total_max_workspace > workspaceSizeInBytes) {
     DLOG(INFO) << "Reallocating workspace storage: " << total_max_workspace;

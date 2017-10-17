@@ -234,10 +234,13 @@ void MemoryPool::ReturnCPU(MemBlock block) {
 }
 
 MemBlock MemoryPool::RequestGPU(int size, int device) {
+
+	tttimer.Start();
   MemBlock block;
 #ifndef CPU_ONLY
   GpuKey key{device, size};
   auto it = gpu_pool_.lower_bound(key);
+
   if (it == gpu_pool_.end() || it->second.device != device ||
       !ShouldBorrowMem(it->second.size, size)) {
     int cur_device;
@@ -252,19 +255,30 @@ MemBlock MemoryPool::RequestGPU(int size, int device) {
     if (cur_device != device) {
       CUDA_CHECK(cudaSetDevice(cur_device));
     }
-    DLOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Create " << MemSize(block.size);
+
+    double ccctime=tttimer.MicroSeconds();
+    t1+=ccctime;
+    LOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Create " << MemSize(block.size)<<"time:"<<ccctime/1000<<" / "<<t1/1000;
+
     return block;
   }
   else {
     block = it->second;
     gpu_pool_.erase(it);
     st_.unused_gpu_mem -= block.size;
-    DLOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Get " << MemSize(block.size);
+
+    double ccctime=tttimer.MicroSeconds();
+    t1+=ccctime;
+    LOG(INFO) << "[GPU] Requested " << MemSize(size) << ", Get " << MemSize(block.size)<<"time:"<<ccctime/1000<<" / "<<t1/1000;
     return block;
   }
 #else
   NO_GPU;
 #endif  // USE_CUDA
+
+
+  t1+=tttimer.MicroSeconds();
+  LOG(INFO)<<"time:"<<t1/1000<<std::endl;
   return block;
 }
 

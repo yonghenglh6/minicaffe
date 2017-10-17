@@ -5,7 +5,7 @@
 #include <map>
 #include "./common.hpp"
 #include "thread_local.hpp"
-
+#include "caffe/util/benchmark.hpp"
 namespace caffe {
 
 /*!
@@ -61,6 +61,9 @@ class MemoryPool {
   std::multimap<CpuKey, MemBlock> cpu_pool_;
   std::multimap<GpuKey, MemBlock> gpu_pool_;
 
+
+  caffe::Timer tttimer;
+  double t1=0.0,t2=0.0,t3=0.0,t4=0.0,t5=0.0,t6=0.0,t7=0.0;
   //// small object pool on CPU for size <= 128 bytes
   struct LinkedList {
     LinkedList* next{nullptr};

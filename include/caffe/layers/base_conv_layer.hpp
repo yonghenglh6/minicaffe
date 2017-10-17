@@ -58,7 +58,7 @@ class BaseConvolutionLayer : public Layer<Dtype> {
   }
 
   virtual void ClearInternalBuffer() {
-    col_buffer_.Release();
+//    col_buffer_.Release();
   }
   // reverse_dimensions should return true iff we are implementing deconv, so
   // that conv helpers know which dimensions are which.
